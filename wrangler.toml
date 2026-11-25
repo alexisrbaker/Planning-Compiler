@@ -1,0 +1,4 @@
+name = "story-architect-planning-compiler"
+main = "src/index.js"
+compatibility_date = "2026-06-17"
+workers_dev = false
