@@ -8,7 +8,7 @@ function request(route, assigned = false) {
     entry_pressure: "Pressure " + number, movement: "Movement " + number,
     exit_pressure: "Changed " + number, payoffs_owned: [], reserved_for_later_acts: [],
     installments: [{
-      number, movement: "Move " + number, reason: "Cause " + number,
+      number, movement: `Opening: A missing traveler ${number}\nAct I: Searchers discover a blocked road\nAct II: A witness redirects the search\nAct III: The traveler returns safely`, reason: "Cause " + number,
       dramatic_focus: "Focus " + number, state_change: "Changed " + number,
       continuation_hook: "Hook " + number, continuation_hook_type: "decision",
       entry_pressure: "Pressure " + number, exit_pressure: "Changed " + number,
@@ -58,4 +58,24 @@ test("chaptered map rejects an explicitly assigned inactive POV",async()=>{
   const result=await compile(payload);
   assert.equal(result.status,422);
   assert.ok(result.body.errors.some(e=>e.code==="unavailable_pov_assigned"));
+});
+
+test("map rejects a single abbreviated movement",async()=>{
+  const payload=request("Chaptered Installment");
+  payload.canonical_payload.acts[0].installments[0].movement="A traveler returns.";
+  const result=await compile(payload);
+  assert.equal(result.status,422);
+  assert.ok(result.body.errors.some(e=>e.code==="missing_minibook_structure"));
+});
+test("map rejects repeated movements",async()=>{
+  const payload=request("Chaptered Installment");
+  payload.canonical_payload.acts[0].installments[0].movement="Opening: Same\nAct I: Same\nAct II: Same\nAct III: Same";
+  const result=await compile(payload);
+  assert.equal(result.status,422);
+  assert.ok(result.body.errors.some(e=>e.code==="invalid_minibook_movements"));
+});
+test("map preserves mini-book movements in rendered output",async()=>{
+  const result=await compile(request("Chaptered Installment"));
+  assert.equal(result.status,200,JSON.stringify(result.body.errors));
+  for(const label of ["Opening:","Act I:","Act II:","Act III:"]) assert.ok(result.body.rendered_markdown.includes(label));
 });
