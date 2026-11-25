@@ -1,0 +1,9 @@
+{
+  "name": "story-architect-planning-compiler",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "deploy": "npx --yes wrangler@4 deploy"
+  }
+}
