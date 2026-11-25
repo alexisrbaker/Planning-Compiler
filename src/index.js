@@ -83,6 +83,20 @@ function parseInstallment(input, path) {
       errors.push(error("missing_required_field", `${path}.${key}`, `${key} is required.`));
     }
   }
+  // Mini-book structure is mandatory for every newly compiled map installment.
+  if (nonEmpty(input.movement)) {
+    const movement = input.movement.trim();
+    const labels = [...movement.matchAll(/(?:^|\n)\s*(?:\*\*)?(Opening|Act I|Act II|Act III)(?:\*\*)?\s*:\s*(?:\*\*)?/gi)];
+    const expected = ["opening", "act i", "act ii", "act iii"];
+    if (labels.length !== 4 || labels.some((label, i) => label[1].toLowerCase() !== expected[i]) || movement.slice(0, labels[0]?.index ?? 0).trim()) {
+      errors.push(error("missing_minibook_structure", `${path}.movement`, "Provide Opening:, Act I:, Act II:, Act III: in order on separate lines; keep the continuation hook in continuation_hook."));
+    } else {
+      const sections = labels.map((label, i) => movement.slice(label.index + label[0].length, labels[i+1]?.index ?? movement.length).trim());
+      if (sections.some(section => !section) || new Set(sections.map(section => section.toLowerCase())).size !== 4) {
+        errors.push(error("invalid_minibook_movements", `${path}.movement`, "All four mini-book movements must be nonempty and distinct."));
+      }
+    }
+  }
   if (!Number.isInteger(input.number) || Number(input.number) < 1) {
     errors.push(error("invalid_installment_number", `${path}.number`, "Installment number must be a positive integer."));
   }
@@ -1108,7 +1122,7 @@ function compile(input) {
       output_plan_version: plan.version,
       normalized_payload: normalized,
       rendered_markdown: rendered,
-      receipt: { ...plan.buildReceipt(normalized, input.render_mode), compiler_version: "1.3.5" }
+      receipt: { ...plan.buildReceipt(normalized, input.render_mode), compiler_version: "1.3.6" }
     }
   };
 }
@@ -1132,7 +1146,7 @@ var index_default = {
       return jsonResponse({
         ok: true,
         service: "story-architect-planning-compiler",
-        version: "1.3.5"
+        version: "1.3.6"
       });
     }
     if (url.pathname !== "/compile") {
