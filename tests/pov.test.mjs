@@ -1,0 +1,61 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import compiler from "../src/index.js";
+
+function request(route, assigned = false) {
+  const acts = [1,2,3].map(number => ({
+    number, title: "Act " + number, start_installment: number, end_installment: number,
+    entry_pressure: "Pressure " + number, movement: "Movement " + number,
+    exit_pressure: "Changed " + number, payoffs_owned: [], reserved_for_later_acts: [],
+    installments: [{
+      number, movement: "Move " + number, reason: "Cause " + number,
+      dramatic_focus: "Focus " + number, state_change: "Changed " + number,
+      continuation_hook: "Hook " + number, continuation_hook_type: "decision",
+      entry_pressure: "Pressure " + number, exit_pressure: "Changed " + number,
+      pressure_delta: "Escalation", unresolved_pressures: [],
+      boundary_reason: "Boundary", payoffs_owned: [], reserved_material: [],
+      ...(assigned ? { compiler_metadata: { pov_character_ids: ["p1"] } } : {})
+    }]
+  }));
+  return {output_plan:"season_map",output_plan_version:1,render_mode:"normal",
+    canonical_payload:{project_ref_id:1,season_number:1,title:"Test Season",status:"draft",
+      installment_count:3,target_installment_route:route,start_condition:"Beginning",end_condition:"Ending",
+      season_locks:[],continuity_handoff:[],acts,
+      pov_utilization:[{character_id:"p1",character_name:"One",status:"season_active",
+        required_this_season:true,installment_numbers:assigned?[1,2,3]:[],
+        distinct_information_channel:"Unique",independent_season_arc:"Arc",
+        consequential_decisions:["Decision"],season_handoff:"Handoff"}],
+      options:[{number:1,action:"approve",label:"Approve the Season Map and continue to "+route+" planning"},
+        {number:2,action:"revise",label:"Revise"},{number:3,action:"regenerate",label:"Regenerate"}]
+    }
+  };
+}
+async function compile(payload) {
+  const response=await compiler.fetch(new Request("https://internal/compile",{
+    method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)
+  }));
+  return {status:response.status,body:await response.json()};
+}
+test("chaptered map accepts eligible POV roster without exact installment assignments",async()=>{
+  const result=await compile(request("Chaptered Installment"));
+  assert.equal(result.status,200,JSON.stringify(result.body.errors));
+  assert.equal(result.body.ok,true);
+});
+test("long installment map defers POV assignment to chapters",async()=>{
+  const result=await compile(request("Long Installment"));
+  assert.equal(result.status,200,JSON.stringify(result.body.errors));
+});
+test("chapterless map retains installment POV allocation requirement",async()=>{
+  const result=await compile(request("Chapterless"));
+  assert.equal(result.status,422);
+  assert.ok(result.body.errors.some(e=>e.code==="installment_missing_pov_assignment"));
+});
+test("chaptered map rejects an explicitly assigned inactive POV",async()=>{
+  const payload=request("Chaptered Installment",true);
+  payload.canonical_payload.pov_utilization[0].status="inactive_this_season";
+  payload.canonical_payload.pov_utilization[0].required_this_season=false;
+  payload.canonical_payload.pov_utilization[0].installment_numbers=[];
+  const result=await compile(payload);
+  assert.equal(result.status,422);
+  assert.ok(result.body.errors.some(e=>e.code==="unavailable_pov_assigned"));
+});
