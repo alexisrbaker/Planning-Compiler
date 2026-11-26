@@ -62,6 +62,126 @@ function getInstallmentPovIds(installment) {
   return installment.compiler_metadata?.pov_character_ids ?? installment.pov_character_ids ?? [];
 }
 __name(getInstallmentPovIds, "getInstallmentPovIds");
+function parseMapReceipts(input, path) {
+  const errors = [];
+  const construction = input?.construction_receipt;
+  const constructionPath = `${path}.construction_receipt`;
+  if (!isRecord(construction)) {
+    errors.push(error("missing_construction_receipt", constructionPath, "A hidden four-question construction_receipt is required for every map installment."));
+  }
+  const expectedQuestions = [
+    "What happens?",
+    "What gets in the way?",
+    "What's the consequence?",
+    "What is left unresolved?"
+  ];
+  const answers = construction?.answers;
+  if (isRecord(construction)) {
+    if (!nonEmpty(construction.candidate_id)) errors.push(error("missing_candidate_id", `${constructionPath}.candidate_id`, "construction_receipt.candidate_id must bind the receipt to this candidate."));
+    if (construction.version !== 1) errors.push(error("unsupported_construction_receipt_version", `${constructionPath}.version`, "construction_receipt.version must be 1.", 1, construction.version));
+    if (construction.constructed_before_planner_fields !== true) errors.push(error("construction_receipt_order_unverified", `${constructionPath}.constructed_before_planner_fields`, "The four-question evidence must attest that construction preceded planner fields.", true, construction.constructed_before_planner_fields));
+    if (!Array.isArray(construction.question_order) || construction.question_order.length !== expectedQuestions.length || construction.question_order.some((q, i) => q !== expectedQuestions[i])) {
+      errors.push(error("invalid_construction_question_order", `${constructionPath}.question_order`, "The four canonical questions must appear in their required order.", expectedQuestions, construction.question_order));
+    }
+    if (!isRecord(answers)) {
+      errors.push(error("missing_construction_answers", `${constructionPath}.answers`, "construction_receipt.answers must contain all four concrete answers."));
+    } else {
+      const answerKeys = ["what_happens", "what_gets_in_the_way", "whats_the_consequence", "what_is_left_unresolved"];
+      answerKeys.forEach(key => {
+        if (!nonEmpty(answers[key])) errors.push(error("missing_construction_answer", `${constructionPath}.answers.${key}`, `${key} must be a concrete, non-empty story answer.`));
+      });
+      if (answerKeys.every(key => nonEmpty(answers[key]))) {
+        const normalizedAnswers = answerKeys.map(key => answers[key].trim().toLowerCase());
+        if (new Set(normalizedAnswers).size !== answerKeys.length) errors.push(error("duplicate_construction_answers", `${constructionPath}.answers`, "The four construction answers must be materially distinct."));
+      }
+    }
+    if (!nonEmpty(construction.this_is_the_story_where)) errors.push(error("missing_story_unit_premise", `${constructionPath}.this_is_the_story_where`, "A concise This is the story where... premise is required."));
+  }
+  const capacity = input?.route_capacity_receipt;
+  const capacityPath = `${path}.route_capacity_receipt`;
+  if (!isRecord(capacity)) {
+    errors.push(error("missing_route_capacity_receipt", capacityPath, "A hidden route_capacity_receipt is required for every map installment."));
+  }
+  if (isRecord(capacity)) {
+    if (!nonEmpty(capacity.candidate_id)) errors.push(error("missing_candidate_id", `${capacityPath}.candidate_id`, "route_capacity_receipt.candidate_id must bind the evidence to this candidate."));
+    if (capacity.version !== 1) errors.push(error("unsupported_route_capacity_receipt_version", `${capacityPath}.version`, "route_capacity_receipt.version must be 1.", 1, capacity.version));
+    if (!nonEmpty(capacity.target_installment_route)) errors.push(error("missing_capacity_route", `${capacityPath}.target_installment_route`, "The receipt must name the approved target installment route."));
+    for (const key of ["route_scale_basis", "choice_altering_consequence"]) {
+      if (!nonEmpty(capacity[key])) errors.push(error("missing_route_capacity_evidence", `${capacityPath}.${key}`, `${key} must explain the route-scale narrative capacity.`));
+    }
+    for (const key of ["substantive_turns", "interacting_threads", "opening_directions"]) {
+      if (!stringArray(capacity[key]) || capacity[key].length < 2 || capacity[key].some(item => !item.trim())) {
+        errors.push(error("insufficient_route_capacity_evidence", `${capacityPath}.${key}`, `${key} must contain at least two distinct concrete evidence items.`, "at least 2 non-empty strings", capacity[key]));
+      } else if (new Set(capacity[key].map(item => item.trim().toLowerCase())).size < 2) {
+        errors.push(error("duplicate_route_capacity_evidence", `${capacityPath}.${key}`, `${key} must contain distinct evidence items.`));
+      }
+    }
+  }
+  if (isRecord(construction) && isRecord(capacity) && nonEmpty(construction.candidate_id) && construction.candidate_id !== capacity.candidate_id) {
+    errors.push(error("map_receipt_candidate_mismatch", capacityPath + ".candidate_id", "Construction and route-capacity receipts must bind to the same candidate.", construction.candidate_id, capacity.candidate_id));
+  }
+  if (errors.length) return { errors };
+  return {
+    value: {
+      construction_receipt: {
+        version: 1,
+        candidate_id: construction.candidate_id.trim(),
+        constructed_before_planner_fields: true,
+        question_order: [...expectedQuestions],
+        answers: {
+          what_happens: construction.answers.what_happens.trim(),
+          what_gets_in_the_way: construction.answers.what_gets_in_the_way.trim(),
+          whats_the_consequence: construction.answers.whats_the_consequence.trim(),
+          what_is_left_unresolved: construction.answers.what_is_left_unresolved.trim()
+        },
+        this_is_the_story_where: construction.this_is_the_story_where.trim()
+      },
+      route_capacity_receipt: {
+        version: 1,
+        candidate_id: capacity.candidate_id.trim(),
+        target_installment_route: capacity.target_installment_route.trim(),
+        route_scale_basis: capacity.route_scale_basis.trim(),
+        substantive_turns: capacity.substantive_turns.map(item => item.trim()),
+        interacting_threads: capacity.interacting_threads.map(item => item.trim()),
+        opening_directions: capacity.opening_directions.map(item => item.trim()),
+        choice_altering_consequence: capacity.choice_altering_consequence.trim()
+      }
+    },
+    errors
+  };
+}
+__name(parseMapReceipts, "parseMapReceipts");
+function validateMapReceipts(installments, path, expectedRoute) {
+  const errors = [];
+  const candidateIds = new Set();
+  installments.forEach((installment, index) => {
+    const itemPath = `${path}[${index}]`;
+    const construction = installment.construction_receipt;
+    const capacity = installment.route_capacity_receipt;
+    const candidateId = construction?.candidate_id;
+    if (candidateId && candidateIds.has(candidateId)) {
+      errors.push(error("duplicate_construction_candidate_id", `${itemPath}.construction_receipt.candidate_id`, "Each installment must have its own independently constructed candidate receipt.", void 0, candidateId));
+    }
+    if (candidateId) candidateIds.add(candidateId);
+    if (expectedRoute && capacity?.target_installment_route?.trim().toLowerCase() !== expectedRoute.trim().toLowerCase()) {
+      errors.push(error("route_capacity_route_mismatch", `${itemPath}.route_capacity_receipt.target_installment_route`, "Route-capacity evidence must match the Map's locked target route.", expectedRoute, capacity?.target_installment_route));
+    }
+  });
+  return errors;
+}
+__name(validateMapReceipts, "validateMapReceipts");
+function buildMapEvidenceReceipt(installments) {
+  const ordered = [...installments].sort((a, b) => a.number - b.number);
+  return {
+    schema_version: 1,
+    status: "complete",
+    installment_count: ordered.length,
+    construction_receipt_count: ordered.filter(item => isRecord(item.construction_receipt)).length,
+    route_capacity_receipt_count: ordered.filter(item => isRecord(item.route_capacity_receipt)).length,
+    covered_installment_numbers: ordered.map(item => item.number)
+  };
+}
+__name(buildMapEvidenceReceipt, "buildMapEvidenceReceipt");
 function parseInstallment(input, path) {
   const errors = [];
   if (!isRecord(input)) {
@@ -125,6 +245,8 @@ function parseInstallment(input, path) {
       errors.push(error("invalid_string_array", `${path}.${key}`, `${key} must be an array of strings.`));
     }
   }
+  const mapReceipts = parseMapReceipts(input, path);
+  errors.push(...mapReceipts.errors);
   if (input.next_sibling_start_state !== void 0 && !nonEmpty(input.next_sibling_start_state)) {
     errors.push(error("invalid_next_sibling_start_state", `${path}.next_sibling_start_state`, "next_sibling_start_state must be a non-empty string when present."));
   }
@@ -179,7 +301,9 @@ function parseInstallment(input, path) {
     unresolved_pressures: [...input.unresolved_pressures],
     boundary_reason: String(input.boundary_reason).trim(),
     payoffs_owned: [...input.payoffs_owned],
-    reserved_material: [...input.reserved_material]
+    reserved_material: [...input.reserved_material],
+    construction_receipt: mapReceipts.value?.construction_receipt,
+    route_capacity_receipt: mapReceipts.value?.route_capacity_receipt
   };
   if (nonEmpty(input.title)) {
     value.title = String(input.title).trim();
@@ -636,6 +760,7 @@ var seasonMapPlan = {
       });
     });
     errors.push(...validateInstallmentSequence(allInstallments, payload.installment_count, "acts.installments"));
+    errors.push(...validateMapReceipts(allInstallments, "acts.installments", payload.target_installment_route));
     errors.push(...validateOptions(payload.options));
     errors.push(...validateApprovalContinuationLabel(
       payload.options,
@@ -778,7 +903,8 @@ var seasonMapPlan = {
       renderer_version: 1,
       validator_version: 3,
       pov_record_count: payload.pov_utilization.length,
-      required_pov_count: payload.pov_utilization.filter((item) => item.required_this_season).length
+      required_pov_count: payload.pov_utilization.filter((item) => item.required_this_season).length,
+      map_evidence_receipt: buildMapEvidenceReceipt(flattenInstallments(payload.acts))
     };
   }
 };
@@ -870,6 +996,7 @@ var serialMapPlan = {
   },
   validate(payload) {
     const errors = validateInstallmentSequence(payload.installments, payload.horizon_count, "installments");
+    errors.push(...validateMapReceipts(payload.installments, "installments"));
     errors.push(...validateOptions(payload.options));
     errors.push(...validateApprovalContinuationLabel(
       payload.options,
@@ -958,7 +1085,8 @@ var serialMapPlan = {
       horizon_count: payload.horizon_count,
       engine_count: payload.active_engines.length,
       renderer_version: 1,
-      validator_version: 1
+      validator_version: 2,
+      map_evidence_receipt: buildMapEvidenceReceipt(payload.installments)
     };
   }
 };
@@ -1122,7 +1250,7 @@ function compile(input) {
       output_plan_version: plan.version,
       normalized_payload: normalized,
       rendered_markdown: rendered,
-      receipt: { ...plan.buildReceipt(normalized, input.render_mode), compiler_version: "1.3.6" }
+      receipt: { ...plan.buildReceipt(normalized, input.render_mode), compiler_version: "1.3.7" }
     }
   };
 }
@@ -1146,7 +1274,7 @@ var index_default = {
       return jsonResponse({
         ok: true,
         service: "story-architect-planning-compiler",
-        version: "1.3.6"
+        version: "1.3.7"
       });
     }
     if (url.pathname !== "/compile") {
