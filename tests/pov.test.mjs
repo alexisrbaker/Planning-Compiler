@@ -14,6 +14,25 @@ function request(route, assigned = false) {
       entry_pressure: "Pressure " + number, exit_pressure: "Changed " + number,
       pressure_delta: "Escalation", unresolved_pressures: [],
       boundary_reason: "Boundary", payoffs_owned: [], reserved_material: [],
+      construction_receipt: {
+        version: 1, candidate_id: `candidate-${number}`, constructed_before_planner_fields: true,
+        question_order: ["What happens?", "What gets in the way?", "What's the consequence?", "What is left unresolved?"],
+        answers: {
+          what_happens: `A traveler ${number} disappears during a storm.`,
+          what_gets_in_the_way: `A washed-out bridge blocks the search party's route ${number}.`,
+          whats_the_consequence: `The group splits up and loses its only safe crossing ${number}.`,
+          what_is_left_unresolved: `One searcher is stranded while the storm worsens ${number}.`
+        },
+        this_is_the_story_where: `This is where the searchers must rescue a missing traveler despite the storm ${number}.`
+      },
+      route_capacity_receipt: {
+        version: 1, candidate_id: `candidate-${number}`, target_installment_route: route,
+        route_scale_basis: `The linked rescue, conflict and aftermath sustain the full ${route} installment without padding.`,
+        substantive_turns: [`The search reveals a second route ${number}.`, `The group loses its safe crossing ${number}.`],
+        interacting_threads: [`The storm isolates one searcher ${number}.`, `The missing traveler's clue redirects the group ${number}.`],
+        opening_directions: [`Return to the settlement ${number}.`, `Cross the flooded ravine ${number}.`],
+        choice_altering_consequence: `A searcher is stranded and the group must choose whom to rescue first ${number}.`
+      },
       ...(assigned ? { compiler_metadata: { pov_character_ids: ["p1"] } } : {})
     }]
   }));
